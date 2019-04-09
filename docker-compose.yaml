@@ -1,0 +1,82 @@
+version: '3.2'
+
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack
+    environment:
+     - SERVICES=dynamodb,s3,sns,sqs
+     - DEFAULT_REGION=eu-west-2
+     - DATA_DIR=/tmp/localstack/data
+    ports:
+     - "4569:4569"
+     - "4572:4572"
+     - "4575:4575"
+     - "4576:4576"
+     - "9999:8080"
+    networks:
+      - backend
+  dynamodb-admin:  
+    image: aaronshaf/dynamodb-admin
+    container_name: dynamodb-admin
+    depends_on:
+      - localstack
+    ports:
+      - 8001:8001
+    environment:
+      - DYNAMO_ENDPOINT=http://localstack:4569
+    networks:
+      - backend
+  terraform:
+    image: nhsdigital/terraform-resource
+    container_name: terraform
+    depends_on:
+      - localstack
+    volumes:
+      - ${PWD:-.}/Pipeline/terraform:/terraform
+      - ${PWD:-.}/Pipeline/scripts:/scripts
+    command:
+      - /bin/sh
+      - -c
+      - | 
+          scripts/wait-for-it.sh localstack:4569
+          scripts/wait-for-it.sh localstack:4572 
+          scripts/wait-for-it.sh localstack:4575 
+          scripts/wait-for-it.sh localstack:4575
+          cd terraform          
+          terraform init -input=false > init.txt
+          terraform destroy --auto-approve > destroy.txt
+          terraform apply -input=false --auto-approve > apply.txt
+    networks:
+      - backend
+  
+  # uncomment the following to check integration with Elasticsearch and Kibana
+
+  # elasticsearch:
+  #   image: docker.elastic.co/elasticsearch/elasticsearch:6.2.4
+  #   container_name: elasticsearch
+  #   environment:
+  #     discovery.type: single-node
+  #     xpack.security.enabled: "false"
+  #   ports:
+  #     - "9200:9200"
+  #     - "9300:9300"
+  #   volumes:
+  #     - elasticsearch-data:/usr/share/elasticsearch/data
+  #   networks:
+  #     - backend
+  # kibana:
+  #   image: docker.elastic.co/kibana/kibana:6.2.4
+  #   container_name: kibana
+  #   environment:
+  #     xpack.security.enabled: "false"
+  #   ports:
+  #     - "5601:5601"
+  #   depends_on:
+  #     - elasticsearch
+  #   networks:
+  #     - backend
+
+networks:
+  backend:
+    driver: bridge
